@@ -1,0 +1,82 @@
+/**
+ * HSTLES Loading Spinner Styles
+ * CSS animations and styles for loading states and spinners
+ */
+
+/* Loading spinner styles */
+.loading-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: #ffffff;
+  animation: spin 1s ease-in-out infinite;
+  margin-right: 8px;
+}
+
+/* Dark mode spinner adjustments */
+.dark .btn-light .loading-spinner {
+  border: 2px solid rgba(0, 0, 0, 0.3);
+  border-top-color: #000000;
+}
+
+/* Primary button spinner */
+.btn-primary .loading-spinner {
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #ffffff;
+}
+
+/* Secondary button spinner */
+.btn-secondary .loading-spinner {
+  border: 2px solid rgba(0, 0, 0, 0.3);
+  border-top-color: #000000;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Hide button text during loading */
+.htmx-request .btn-text {
+  visibility: hidden;
+}
+
+/* Show spinner during HTMX requests */
+.htmx-request .loading-spinner {
+  display: inline-block;
+}
+
+/* Hide spinner by default */
+.loading-spinner {
+  display: none;
+}
+
+/* Form loading state */
+.htmx-request {
+  pointer-events: none;
+  opacity: 0.8;
+  position: relative;
+}
+
+/* Disable hover effects during loading */
+.htmx-request:hover {
+  transform: none !important;
+}
+
+/* Card loading overlay */
+.htmx-request.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: inherit;
+  z-index: 1;
+}
+
+.dark .htmx-request.card::before {
+  background: rgba(0, 0, 0, 0.1);
+}

@@ -185,62 +185,88 @@
     // 4. THEME MANAGER
     // =============================================================================
     
+    /**
+     * HSTLES Theme Manager
+     * Handles light/dark/system theme switching with localStorage persistence
+     */
     class ThemeManager {
         constructor() {
+            this.storageKey = 'theme';
+            this.classDark = 'dark';
             this.init();
         }
 
-        init() {
-            // Apply saved theme or detect system preference
-            this.applyTheme(this.getTheme());
-            
-            // Listen for system theme changes
-            if (window.matchMedia) {
-                window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-                    if (this.getTheme() === 'system') {
-                        this.applyTheme('system');
-                    }
-                });
+        // Helpers for storage (silent on errors)
+        getStored() {
+            try { 
+                return localStorage.getItem(this.storageKey); 
+            } catch { 
+                return null; 
             }
         }
 
+        setStored(val) {
+            try { 
+                localStorage.setItem(this.storageKey, val); 
+            } catch { 
+                /* no-op */ 
+            }
+        }
+
+        // Determine initial "mode" (light|dark|system)
+        detectMode() {
+            const stored = this.getStored();
+            if (stored) return stored;
+            const attr = document.documentElement.getAttribute('data-theme-mode');
+            if (attr) return attr;
+            return 'dark';        // default to dark
+        }
+
+        // Apply a mode: add/remove .dark on <html>
+        apply(mode) {
+            let useDark;
+            if (mode === 'system') {
+                useDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            } else {
+                useDark = (mode === 'dark');
+            }
+            document.documentElement.classList.toggle(this.classDark, useDark);
+        }
+
+        init() {
+            // Kick things off
+            const currentMode = this.detectMode();
+            this.apply(currentMode);
+
+            // If "system", watch for OS changes
+            if (currentMode === 'system') {
+                window.matchMedia('(prefers-color-scheme: dark)')
+                    .addEventListener('change', () => this.apply('system'));
+            }
+        }
+
+        // For compatibility with existing code
         getTheme() {
-            return localStorage.getItem('theme') || 'system';
+            return this.getStored() || this.detectMode();
         }
 
         setTheme(theme) {
-            localStorage.setItem('theme', theme);
-            this.applyTheme(theme);
+            this.setStored(theme);
+            this.apply(theme);
         }
 
         applyTheme(theme) {
-            const isDark = theme === 'dark' || 
-                          (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-            
-            if (isDark) {
-                document.documentElement.classList.add('dark');
-            } else {
-                document.documentElement.classList.remove('dark');
-            }
+            this.apply(theme);
         }
 
-        toggleTheme() {
-            const currentTheme = this.getTheme();
-            let newTheme;
-            
-            switch (currentTheme) {
-                case 'light':
-                    newTheme = 'dark';
-                    break;
-                case 'dark':
-                    newTheme = 'system';
-                    break;
-                default:
-                    newTheme = 'light';
-                    break;
-            }
-            
-            this.setTheme(newTheme);
+        toggleTheme(newMode) {
+            // if no arg, rotate: light → dark → system → light → …
+            const order = ['light', 'dark', 'system'];
+            let idx = order.indexOf(this.getStored() || this.detectMode());
+            idx = (idx + 1) % order.length;
+            const mode = newMode || order[idx];
+            this.setStored(mode);
+            this.apply(mode);
         }
     }
 
@@ -407,7 +433,7 @@
             window.themeManager = new ThemeManager();
             
             // Make toggleTheme globally available for theme switcher buttons
-            window.toggleTheme = () => window.themeManager.toggleTheme();
+            window.toggleTheme = (newMode) => window.themeManager.toggleTheme(newMode);
             
             console.log('Theme management initialized');
         }

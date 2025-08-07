@@ -182,14 +182,163 @@
     }
 
     // =============================================================================
-    // 4. THEME MANAGER (delegated to theme-manager.js)
+    // 4. THEME MANAGER
     // =============================================================================
     
-    // Theme management is handled by the dedicated theme-manager.js file
-    // which provides window.toggleTheme() function and automatic initialization
+    class ThemeManager {
+        constructor() {
+            this.init();
+        }
+
+        init() {
+            // Apply saved theme or detect system preference
+            this.applyTheme(this.getTheme());
+            
+            // Listen for system theme changes
+            if (window.matchMedia) {
+                window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+                    if (this.getTheme() === 'system') {
+                        this.applyTheme('system');
+                    }
+                });
+            }
+        }
+
+        getTheme() {
+            return localStorage.getItem('theme') || 'system';
+        }
+
+        setTheme(theme) {
+            localStorage.setItem('theme', theme);
+            this.applyTheme(theme);
+        }
+
+        applyTheme(theme) {
+            const isDark = theme === 'dark' || 
+                          (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            
+            if (isDark) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        }
+
+        toggleTheme() {
+            const currentTheme = this.getTheme();
+            let newTheme;
+            
+            switch (currentTheme) {
+                case 'light':
+                    newTheme = 'dark';
+                    break;
+                case 'dark':
+                    newTheme = 'system';
+                    break;
+                default:
+                    newTheme = 'light';
+                    break;
+            }
+            
+            this.setTheme(newTheme);
+        }
+    }
 
     // =============================================================================
-    // 5. FORM HELPERS (for HTMX integration)
+    // 5. HTMX LOADING MANAGER
+    // =============================================================================
+    
+    class HTMXLoadingManager {
+        static init() {
+            // Add loading state management for HTMX requests
+            utils.on(document.body, 'htmx:beforeRequest', this.handleBeforeRequest);
+            utils.on(document.body, 'htmx:afterRequest', this.handleAfterRequest);
+            utils.on(document.body, 'htmx:responseError', this.handleError);
+            utils.on(document.body, 'htmx:timeout', this.handleTimeout);
+        }
+
+        static handleBeforeRequest(evt) {
+            const target = evt.detail.elt;
+            
+            // Add loading class to the element
+            utils.addClass(target, 'htmx-request');
+            
+            // Disable form elements if it's a form
+            if (target.tagName === 'FORM') {
+                const inputs = target.querySelectorAll('input, button, select, textarea');
+                inputs.forEach(input => {
+                    input.disabled = true;
+                });
+            }
+            
+            // If it's a button, disable it
+            if (target.tagName === 'BUTTON') {
+                target.disabled = true;
+            }
+            
+            // If it's an element with a form parent, disable the parent form
+            const parentForm = target.closest('form');
+            if (parentForm) {
+                const inputs = parentForm.querySelectorAll('input, button, select, textarea');
+                inputs.forEach(input => {
+                    input.disabled = true;
+                });
+            }
+        }
+
+        static handleAfterRequest(evt) {
+            const target = evt.detail.elt;
+            
+            // Remove loading class
+            utils.removeClass(target, 'htmx-request');
+            
+            // Re-enable form elements
+            HTMXLoadingManager.enableElements(target);
+        }
+
+        static handleError(evt) {
+            const target = evt.detail.elt;
+            utils.removeClass(target, 'htmx-request');
+            
+            // Re-enable form elements on error
+            HTMXLoadingManager.enableElements(target);
+        }
+
+        static handleTimeout(evt) {
+            const target = evt.detail.elt;
+            utils.removeClass(target, 'htmx-request');
+            
+            // Re-enable form elements on timeout
+            HTMXLoadingManager.enableElements(target);
+        }
+
+        static enableElements(target) {
+            // Re-enable form elements
+            if (target.tagName === 'FORM') {
+                const inputs = target.querySelectorAll('input, button, select, textarea');
+                inputs.forEach(input => {
+                    input.disabled = false;
+                });
+            }
+            
+            // If it's a button, re-enable it
+            if (target.tagName === 'BUTTON') {
+                target.disabled = false;
+            }
+            
+            // If it's an element with a form parent, re-enable the parent form
+            const parentForm = target.closest('form');
+            if (parentForm) {
+                const inputs = parentForm.querySelectorAll('input, button, select, textarea');
+                inputs.forEach(input => {
+                    input.disabled = false;
+                });
+            }
+        }
+    }
+
+    // =============================================================================
+    // 6. FORM HELPERS (for additional HTMX integration)
     // =============================================================================
     
     class FormHelpers {
@@ -206,12 +355,10 @@
             
             if (submitBtn) {
                 utils.on(form, 'htmx:beforeRequest', () => {
-                    submitBtn.disabled = true;
                     utils.addClass(submitBtn, 'loading');
                 });
 
                 utils.on(form, 'htmx:afterRequest', () => {
-                    submitBtn.disabled = false;
                     utils.removeClass(submitBtn, 'loading');
                 });
             }
@@ -219,7 +366,7 @@
     }
 
     // =============================================================================
-    // 6. MAIN INITIALIZATION
+    // 7. MAIN INITIALIZATION
     // =============================================================================
     
     class HSTLES {
@@ -228,6 +375,7 @@
             this.initDropdowns();
             this.initTooltips();
             this.initTheme();
+            this.initHTMX();
             this.initForms();
             this.initTabs();
             
@@ -255,9 +403,19 @@
         }
 
         static initTheme() {
-            // Theme management is delegated to theme-manager.js
-            // which automatically initializes and provides window.toggleTheme()
-            console.log('Theme management handled by theme-manager.js');
+            // Initialize theme manager
+            window.themeManager = new ThemeManager();
+            
+            // Make toggleTheme globally available for theme switcher buttons
+            window.toggleTheme = () => window.themeManager.toggleTheme();
+            
+            console.log('Theme management initialized');
+        }
+
+        static initHTMX() {
+            // Initialize HTMX loading manager
+            HTMXLoadingManager.init();
+            console.log('HTMX loading manager initialized');
         }
 
         static initForms() {
@@ -303,7 +461,7 @@
     }
 
     // =============================================================================
-    // 7. GLOBAL EXPOSURE & AUTO-INIT
+    // 8. GLOBAL EXPOSURE & AUTO-INIT
     // =============================================================================
     
     // Expose to global scope for compatibility

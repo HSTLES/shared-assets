@@ -11,9 +11,11 @@ shared-assets/
 │   ├── loading-spinner.css       # Loading spinner animations
 │   └── vendors/                  # Vendor CSS files
 ├── js/
-│   ├── hstles-core.bundle.js     # Main UI components (renamed from core.bundle.js)
+│   ├── hstles-minimal.js         # Minimal UI components (lightweight replacement)
+│   ├── hstles-essential.js       # Essential components bundle
 │   ├── theme-manager.js          # Theme switching functionality
 │   ├── htmx-loading.js          # HTMX loading state management
+│   ├── jquery.min.js            # jQuery library
 │   └── jquery.scrolly.min.js    # Custom scrolling library
 ├── media/
 │   ├── brand/
@@ -37,7 +39,8 @@ shared-assets/
 <!-- JavaScript -->
 <script src="https://cdn.jsdelivr.net/gh/HSTLES/shared-assets@latest/js/theme-manager.js"></script>
 <script src="https://cdn.jsdelivr.net/gh/HSTLES/shared-assets@latest/js/htmx-loading.js"></script>
-<script src="https://cdn.jsdelivr.net/gh/HSTLES/shared-assets@latest/js/hstles-core.bundle.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/HSTLES/shared-assets@latest/js/hstles-minimal.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/HSTLES/shared-assets@latest/js/jquery.min.js"></script>
 
 <!-- Vendor Files -->
 <link href="https://cdn.jsdelivr.net/gh/HSTLES/shared-assets@latest/vendors/keenicons/styles.bundle.css" rel="stylesheet"/>

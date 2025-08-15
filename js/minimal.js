@@ -4,9 +4,9 @@
  * Dependencies: None (vanilla JS only)
  * Size: <10KB vs 474KB original bundle
  *
- * Version: v0.1.7
+ * Version: v0.1.8
  * Build-Date: 2025-08-16
- * Tag: v0.1.7
+ * Tag: v0.1.8
  * Source: https://github.com/HSTLES/shared-assets
  * CDN-Note: If @latest is stale, purge:
  *   - https://purge.jsdelivr.net/gh/HSTLES/shared-assets@latest/js/minimal.js
@@ -282,6 +282,16 @@
     // =============================================================================
 
     const Loader = {
+        // Configuration for dual-mode loader
+        config: {
+            btnAttr: 'data-loader',            // values: 'btn' | 'page' | 'none'
+            btnClass: 'btn-loader',
+            spinnerClass: 'loading-spinner',
+            labelClass: 'btn-label',
+            disableSelector: 'input, button, select, textarea',
+            spinnerTag: 'span',
+            insertSpinner: 'append'            // 'append' | 'prepend'
+        },
         _count: 0,
         _el: null,
         _initialized: false,
@@ -289,6 +299,8 @@
         _navPending: false,
         _lingerTimer: null,
         _redirectPending: false,
+        // Track active button per HTMX request target to avoid leaks
+        _btnByTarget: new WeakMap(),
 
         ensureElement() {
             if (this._el) return this._el;
@@ -338,8 +350,22 @@
         },
 
         // Event helpers (bound-friendly)
-        increment() { Loader.show(); },
-        decrement() { Loader.hide(); },
+        increment(evt) {
+            const target = evt && evt.detail && evt.detail.elt;
+            if (target) {
+                if (Loader.isNoneMode(target)) return;
+                if (Loader.shouldUseBtnLoader(target)) return;
+            }
+            Loader.show();
+        },
+        decrement(evt) {
+            const target = evt && evt.detail && evt.detail.elt;
+            if (target) {
+                if (Loader.isNoneMode(target)) return;
+                if (Loader.shouldUseBtnLoader(target)) return;
+            }
+            Loader.hide();
+        },
 
         // Promise wrapper for arbitrary async work
         wrapPromise(p) {
@@ -348,7 +374,7 @@
         },
 
         // HTMX integration (optional, auto-wired if htmx is on the page)
-        init() {
+    init() {
             if (this._initialized) return;
             this._initialized = true;
             // Wire HTMX lifecycle
@@ -357,8 +383,9 @@
                 utils.on(document.body, 'htmx:afterRequest', this.handleAfterRequest.bind(this));
                 utils.on(document.body, 'htmx:responseError', this.handleError.bind(this));
                 utils.on(document.body, 'htmx:timeout', this.handleTimeout.bind(this));
-                utils.on(document.body, 'htmx:beforeSwap', this.handleBeforeSwap.bind(this));
-                utils.on(window, 'pageshow', this.handlePageShow.bind(this));
+        utils.on(document.body, 'htmx:beforeSwap', this.handleBeforeSwap.bind(this));
+        // Consolidated pageshow handling into handlePageShow
+        utils.on(window, 'pageshow', this.handlePageShow.bind(this));
 
                 // Drive the single loader off HTMX lifecycle
                 utils.on(document.body, 'htmx:beforeRequest', this.increment);
@@ -388,17 +415,6 @@
                 document.documentElement.classList.remove('hstles-loading');
                 document.documentElement.classList.remove('hstles-redirecting');
             });
-            window.addEventListener('pageshow', (e) => {
-                this._navPending = false;
-                this._redirectPending = false;
-                this.unstick();
-                document.documentElement.classList.remove('hstles-redirecting');
-                this.resetElements();
-                if (e && e.persisted) {
-                    // Force reload when returning from bfcache to fully reset DOM & HTMX state
-                    window.location.reload();
-                }
-            });
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'visible') {
                     this._sticky = false;
@@ -425,13 +441,26 @@
             const target = evt.detail?.elt;
             if (!target) return;
             utils.addClass(target, 'htmx-request');
-            // Disable inputs/buttons in scope
+            // Disable inputs/buttons in scope (only if not already disabled)
             if (target.tagName === 'FORM') {
-                target.querySelectorAll('input, button, select, textarea').forEach(i => i.disabled = true);
+                target.querySelectorAll(this.config.disableSelector).forEach(i => {
+                    if (!i.disabled) { i.disabled = true; i.setAttribute('data-disabled-by-loader', 'true'); }
+                });
             }
-            if (target.tagName === 'BUTTON') target.disabled = true;
             const parentForm = target.closest('form');
-            if (parentForm) parentForm.querySelectorAll('input, button, select, textarea').forEach(i => i.disabled = true);
+            if (parentForm) {
+                parentForm.querySelectorAll(this.config.disableSelector).forEach(i => {
+                    if (!i.disabled) { i.disabled = true; i.setAttribute('data-disabled-by-loader', 'true'); }
+                });
+            }
+            // Button-mode: start spinner and map to target
+            if (!this.isNoneMode(target) && this.shouldUseBtnLoader(target)) {
+                const btn = this.getBtn(target);
+                if (btn) {
+                    this.buttonStart(btn);
+                    this._btnByTarget.set(target, btn);
+                }
+            }
         },
 
         handleAfterRequest(evt) {
@@ -440,23 +469,18 @@
             const hxRedirect = xhr?.getResponseHeader('HX-Redirect') || xhr?.getResponseHeader('Hx-Redirect') || xhr?.getResponseHeader('HX-Location') || xhr?.getResponseHeader('Hx-Location');
             const status = Number(xhr?.status || 0);
             const isHttpRedirect = status >= 300 && status < 400;
-            if (hxRedirect || isHttpRedirect) {
+            if ((hxRedirect || isHttpRedirect) && !this.shouldUseBtnLoader(target) && !this.isNoneMode(target)) {
                 document.documentElement.classList.add('hstles-redirecting');
                 // lock loader on until navigation; avoid flicker by ensuring active state
                 this._redirectPending = true;
                 this._count = Math.max(1, this._count);
                 document.documentElement.classList.add('hstles-loading');
                 this.stick();
-                return;
+                // don't early-return; we still want to clean up button state below
             }
-            // If the request navigates to an auth flow URL, linger briefly
-            const respUrl = xhr?.responseURL || '';
-            if (/\/auth\//.test(respUrl)) {
-              this._redirectPending = true;
-              this._count = Math.max(1, this._count);
-              document.documentElement.classList.add('hstles-loading');
-              this.stick();
-            }
+            // Linger behavior handled by HX-Redirect / 3xx above; no special-case URLs
+            // Stop any active button spinner tied to this request
+            this.stopButtonFromEventTarget(target);
             if (target) {
                 utils.removeClass(target, 'htmx-request');
                 this.enableElements(target);
@@ -465,6 +489,7 @@
 
         handleError(evt) {
             const target = evt.detail?.elt;
+            this.stopButtonFromEventTarget(target);
             if (target) {
                 utils.removeClass(target, 'htmx-request');
                 this.enableElements(target);
@@ -473,6 +498,7 @@
 
         handleTimeout(evt) {
             const target = evt.detail?.elt;
+            this.stopButtonFromEventTarget(target);
             if (target) {
                 utils.removeClass(target, 'htmx-request');
                 this.enableElements(target);
@@ -482,36 +508,195 @@
         handleBeforeSwap(evt) {
             const xhr = evt.detail?.xhr;
             const hxRedirect = xhr?.getResponseHeader('HX-Redirect') || xhr?.getResponseHeader('Hx-Redirect');
-            if (hxRedirect) {
+            if (hxRedirect && !this.shouldUseBtnLoader(evt.detail?.elt) && !this.isNoneMode(evt.detail?.elt)) {
                 document.documentElement.classList.add('hstles-redirecting');
                 this.stick();
             }
+            // If element is being swapped, stop button loader to avoid leaks
+            const target = evt.detail?.elt;
+            this.stopButtonFromEventTarget(target);
         },
 
-        handlePageShow() {
+        // Helper: per-URL sessionStorage key
+        getPageKey() {
+            try {
+                return `hstles:bf-reloaded:${location.pathname}${location.search}`;
+            } catch {
+                return 'hstles:bf-reloaded:default';
+            }
+        },
+
+        // Helper: detect back/forward navigation or bfcache restore
+        isBackForwardNavigation(evt) {
+            if (evt && evt.persisted) return true;
+            try {
+                const entries = performance.getEntriesByType && performance.getEntriesByType('navigation');
+                if (entries && entries[0] && entries[0].type === 'back_forward') return true;
+            } catch { /* no-op */ }
+            try {
+                // Deprecated but still used in some browsers
+                if (performance.navigation && performance.navigation.type === 2) return true;
+            } catch { /* no-op */ }
+            return false;
+        },
+
+        // Fully reset local loader/UI state without a hard reload
+        softResetState() {
+            this._sticky = false;
+            this._navPending = false;
+            this._redirectPending = false;
+            this._count = 0;
+            if (this._lingerTimer) {
+                clearTimeout(this._lingerTimer);
+                this._lingerTimer = null;
+            }
+            document.documentElement.classList.remove('hstles-loading');
             document.documentElement.classList.remove('hstles-redirecting');
+            this.resetElements();
+            // As an extra safety, re-enable any disabled controls globally
+            try {
+                document.querySelectorAll('input[disabled], button[disabled], select[disabled], textarea[disabled]')
+                    .forEach(el => { el.disabled = false; el.removeAttribute('aria-busy'); el.inert = false; });
+            } catch { /* no-op */ }
+        },
+
+        handlePageShow(evt) {
+            // Always drop redirect state and fully reset UI when page is shown (no hard reload)
+            document.documentElement.classList.remove('hstles-redirecting');
+            this.forceDOMReset();
+        },
+
+        // Run multiple passes to defeat BFCache/paint timing quirks
+        forceDOMReset() {
+            this.softResetState();
+            try { requestAnimationFrame(() => this.softResetState()); } catch { /* no-op */ }
+            setTimeout(() => this.softResetState(), 0);
         },
 
         resetElements() {
-            // remove any lingering htmx-request classes and re-enable inputs/buttons
-            document.querySelectorAll('.htmx-request').forEach(el => {
-              el.classList.remove('htmx-request');
-              if (el.tagName === 'FORM') {
-                el.querySelectorAll('input, button, select, textarea').forEach(i => i.disabled = false);
-              }
-              if (el.tagName === 'BUTTON') el.disabled = false;
-              const form = el.closest && el.closest('form');
-              if (form) form.querySelectorAll('input, button, select, textarea').forEach(i => i.disabled = false);
+            // remove lingering HTMX/loader classes and re-enable inputs/buttons (only those we disabled)
+            const toClear = document.querySelectorAll('.htmx-request, .htmx-swapping, .is-loading, [data-loading="true"], [aria-busy="true"]');
+            toClear.forEach(el => {
+                el.classList.remove('htmx-request', 'htmx-swapping', 'is-loading');
+                el.removeAttribute('data-loading');
+                el.removeAttribute('aria-busy');
+                if (el.tagName === 'FORM') {
+                    el.querySelectorAll(this.config.disableSelector).forEach(i => {
+                        if (i.hasAttribute('data-disabled-by-loader')) { i.disabled = false; i.removeAttribute('data-disabled-by-loader'); }
+                        i.inert = false;
+                    });
+                }
+                if (el.tagName === 'BUTTON' || el.tagName === 'INPUT') {
+                    if (el.hasAttribute('data-disabled-by-loader')) { el.disabled = false; el.removeAttribute('data-disabled-by-loader'); }
+                    el.inert = false;
+                }
+                const form = el.closest && el.closest('form');
+                if (form) form.querySelectorAll(this.config.disableSelector).forEach(i => {
+                    if (i.hasAttribute('data-disabled-by-loader')) { i.disabled = false; i.removeAttribute('data-disabled-by-loader'); }
+                    i.inert = false;
+                });
             });
-          },
+        },
 
         enableElements(target) {
             if (target.tagName === 'FORM') {
-                target.querySelectorAll('input, button, select, textarea').forEach(i => i.disabled = false);
+                target.querySelectorAll(this.config.disableSelector).forEach(i => {
+                    if (i.hasAttribute('data-disabled-by-loader')) { i.disabled = false; i.removeAttribute('data-disabled-by-loader'); }
+                });
             }
-            if (target.tagName === 'BUTTON') target.disabled = false;
+            if (target.tagName === 'BUTTON' && target.hasAttribute('data-disabled-by-loader')) {
+                target.disabled = false;
+                target.removeAttribute('data-disabled-by-loader');
+            }
             const parentForm = target.closest('form');
-            if (parentForm) parentForm.querySelectorAll('input, button, select, textarea').forEach(i => i.disabled = false);
+            if (parentForm) parentForm.querySelectorAll(this.config.disableSelector).forEach(i => {
+                if (i.hasAttribute('data-disabled-by-loader')) { i.disabled = false; i.removeAttribute('data-disabled-by-loader'); }
+            });
+        },
+
+        // ---------- Button Loader helpers ----------
+        isNoneMode(el) {
+            const modeEl = el && (el.closest?.(`[${this.config.btnAttr}]`) || el);
+            const val = modeEl?.getAttribute?.(this.config.btnAttr);
+            return val === 'none';
+        },
+        shouldUseBtnLoader(el) {
+            if (!el) return false;
+            const override = el.closest?.(`[${this.config.btnAttr}]`);
+            const overrideVal = override?.getAttribute?.(this.config.btnAttr);
+            if (overrideVal === 'none') return false;
+            if (overrideVal === 'page') return false;
+            if (overrideVal === 'btn') return true;
+            return !!el.closest?.(`.${this.config.btnClass}`);
+        },
+        getBtn(el) {
+            if (!el) return null;
+            if (el.tagName === 'BUTTON') return el;
+            const btn = el.closest?.('button') || el.closest?.('.btn');
+            return btn || null;
+        },
+        ensureBtnSpinner(btn) {
+            if (!btn) return null;
+            let spin = btn.querySelector?.(`.${this.config.spinnerClass}`);
+            if (!spin) {
+                spin = document.createElement(this.config.spinnerTag);
+                spin.className = this.config.spinnerClass;
+                if (this.config.insertSpinner === 'prepend') {
+                    btn.prepend(spin);
+                } else {
+                    btn.appendChild(spin);
+                }
+            }
+            return spin;
+        },
+        buttonStart(btn) {
+            if (!btn) return;
+            this.ensureBtnSpinner(btn);
+            btn.setAttribute('aria-busy', 'true');
+            if (!btn.disabled) { btn.disabled = true; btn.setAttribute('data-disabled-by-loader', 'true'); }
+            btn.classList.add('is-loading');
+            const label = btn.querySelector?.(`.${this.config.labelClass}`);
+            if (label) {
+                label.style.visibility = 'hidden';
+            } else {
+                if (!btn.hasAttribute('data-loader-original-color')) {
+                    try { btn.setAttribute('data-loader-original-color', getComputedStyle(btn).color || ''); } catch { /* no-op */ }
+                }
+                btn.style.color = 'transparent';
+            }
+        },
+        buttonEnd(btn) {
+            if (!btn) return;
+            btn.removeAttribute('aria-busy');
+            if (btn.hasAttribute('data-disabled-by-loader')) {
+                btn.disabled = false;
+                btn.removeAttribute('data-disabled-by-loader');
+            }
+            btn.classList.remove('is-loading');
+            const label = btn.querySelector?.(`.${this.config.labelClass}`);
+            if (label) {
+                label.style.visibility = '';
+            } else if (btn.style && btn.style.color === 'transparent') {
+                const orig = btn.getAttribute('data-loader-original-color') || '';
+                btn.style.color = orig;
+                btn.removeAttribute('data-loader-original-color');
+            }
+        },
+        stopButtonFromEventTarget(target) {
+            if (!target) return;
+            const btn = this._btnByTarget.get(target);
+            if (btn) {
+                this.buttonEnd(btn);
+                this._btnByTarget.delete(target);
+            }
+        },
+        wrapButton(btn, promise) {
+            this.buttonStart(btn);
+            return Promise.resolve(promise).finally(() => this.buttonEnd(btn));
+        },
+        withOverlay(promise) {
+            this.show();
+            return Promise.resolve(promise).finally(() => this.hide());
         }
     };
 

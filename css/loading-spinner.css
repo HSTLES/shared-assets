@@ -1,6 +1,12 @@
 /**
  * HSTLES Loading Spinner Styles
  * CSS animations and styles for loading states and spinners
+ * Version: v0.1.8
+ * Build-Date: 2025-08-16
+ * Tag: v0.1.8
+ * Source: https://github.com/HSTLES/shared-assets
+ * CDN-Note: If @latest is stale, purge:
+ *   - https://purge.jsdelivr.net/gh/HSTLES/shared-assets@latest/css/loading-spinner.css
  */
 
 /* Loading spinner styles */
@@ -148,4 +154,26 @@
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* =============================================================
+   Button Loader (opt-in via .btn-loader or [data-loader="btn"])
+   ============================================================= */
+
+.btn-loader { position: relative; }
+
+.btn-loader .loading-spinner {
+  /* hidden until loading */
+  display: none;
+}
+
+/* When loading: show spinner, hide label, block clicks */
+.btn-loader.is-loading {
+  pointer-events: none;
+}
+.btn-loader.is-loading .loading-spinner {
+  display: inline-block !important; /* override global default */
+}
+.btn-loader.is-loading .btn-label {
+  visibility: hidden; /* keeps button width from shifting */
 }

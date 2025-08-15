@@ -4,9 +4,9 @@
  * Dependencies: None (vanilla JS only)
  * Size: <10KB vs 474KB original bundle
  *
- * Version: v0.1.2
+ * Version: v0.1.3
  * Build-Date: 2025-08-16
- * Tag: v0.1.2
+ * Tag: v0.1.3
  * Source: https://github.com/HSTLES/shared-assets
  * CDN-Note: If @latest is stale, purge:
  *   - https://purge.jsdelivr.net/gh/HSTLES/shared-assets@latest/js/minimal.js

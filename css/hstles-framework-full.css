@@ -1,6 +1,20 @@
+/*!
+ HSTLES Framework (Full)
+ File: css/hstles-framework-full.css
+ Purpose: Consolidated Tailwind build + components + loader styles
+ Version: v0.1.1
+ Build-Date: 2025-08-16
+ Tag: v0.1.1
+ Source: https://github.com/HSTLES/shared-assets
+ Loader-Import: https://cdn.jsdelivr.net/gh/HSTLES/shared-assets@latest/css/loading-spinner.css
+ CDN-Note: If @latest appears stale, purge via https://purge.jsdelivr.net/gh/HSTLES/shared-assets@latest/css/hstles-framework-full.css
+ Pairing: Use with js/minimal.js (universal Loader with HTMX integration)
+*/
+
 /* Tailwind core */
 
 @import url(https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css);
+/* Import loader styles from remote */
 @import url(https://cdn.jsdelivr.net/gh/HSTLES/shared-assets@latest/css/loading-spinner.css);
 
 *, ::before, ::after {

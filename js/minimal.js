@@ -281,7 +281,9 @@
     const Loader = {
         _count: 0,
         _el: null,
-    _initialized: false,
+        _initialized: false,
+        _sticky: false,
+        _navPending: false,
 
         ensureElement() {
             if (this._el) return this._el;
@@ -302,9 +304,25 @@
         },
 
         hide() {
+            // If sticky (during redirect/navigation), defer hiding until pageshow/unload
+            if (this._sticky || this._navPending) return;
             this._count = Math.max(0, this._count - 1);
             if (this._count === 0) {
                 document.documentElement.classList.remove('hstles-loading');
+            }
+        },
+
+        stick() {
+            this._sticky = true;
+            this.show();
+        },
+
+        unstick() {
+            this._sticky = false;
+            // attempt to hide if no pending ops
+            if (this._count <= 1) {
+                this._count = 1; // will be decremented by hide()
+                this.hide();
             }
         },
 
@@ -322,7 +340,7 @@
         init() {
             if (this._initialized) return;
             this._initialized = true;
-            // If HTMX events are present, wire them
+            // Wire HTMX lifecycle
             if (window.document && 'addEventListener' in document) {
                 utils.on(document.body, 'htmx:beforeRequest', this.handleBeforeRequest.bind(this));
                 utils.on(document.body, 'htmx:afterRequest', this.handleAfterRequest.bind(this));
@@ -337,6 +355,25 @@
                 utils.on(document.body, 'htmx:responseError', this.decrement);
                 utils.on(document.body, 'htmx:timeout', this.decrement);
             }
+            // Keep loader on during full navigations/redirects
+            window.addEventListener('beforeunload', () => {
+                this._navPending = true;
+                this.stick();
+            });
+            window.addEventListener('pageshow', () => {
+                this._navPending = false;
+                this.unstick();
+                document.documentElement.classList.remove('hstles-redirecting');
+            });
+            // Make common auth/login links trigger sticky loader
+            document.addEventListener('click', (e) => {
+                const a = e.target.closest('a');
+                if (!a) return;
+                const href = a.getAttribute('href') || '';
+                if (/\/auth\//.test(href) || /login/.test(href) || a.hasAttribute('data-loader-sticky')) {
+                    this.stick();
+                }
+            }, true);
         },
 
         handleBeforeRequest(evt) {
@@ -360,6 +397,7 @@
             const isHttpRedirect = status >= 300 && status < 400;
             if (hxRedirect || isHttpRedirect) {
                 document.documentElement.classList.add('hstles-redirecting');
+                this.stick();
                 return;
             }
             if (target) {
@@ -387,7 +425,10 @@
         handleBeforeSwap(evt) {
             const xhr = evt.detail?.xhr;
             const hxRedirect = xhr?.getResponseHeader('HX-Redirect') || xhr?.getResponseHeader('Hx-Redirect');
-            if (hxRedirect) document.documentElement.classList.add('hstles-redirecting');
+            if (hxRedirect) {
+                document.documentElement.classList.add('hstles-redirecting');
+                this.stick();
+            }
         },
 
         handlePageShow() {

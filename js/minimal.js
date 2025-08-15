@@ -287,6 +287,7 @@
         _initialized: false,
         _sticky: false,
         _navPending: false,
+        _lingerTimer: null,
 
         ensureElement() {
             if (this._el) return this._el;
@@ -329,6 +330,12 @@
             }
         },
 
+        linger(ms = 900) {
+            this.stick();
+            if (this._lingerTimer) clearTimeout(this._lingerTimer);
+            this._lingerTimer = setTimeout(() => this.unstick(), ms);
+        },
+
         // Event helpers (bound-friendly)
         increment() { Loader.show(); },
         decrement() { Loader.hide(); },
@@ -363,10 +370,26 @@
                 this._navPending = true;
                 this.stick();
             });
-            window.addEventListener('pageshow', () => {
+            window.addEventListener('unload', () => {
+                this._navPending = true;
+                this.stick();
+            });
+            window.addEventListener('pagehide', () => {
+                this._navPending = false;
+                this._sticky = false;
+                this._count = 0;
+                document.documentElement.classList.remove('hstles-loading');
+                document.documentElement.classList.remove('hstles-redirecting');
+            });
+            window.addEventListener('pageshow', (e) => {
                 this._navPending = false;
                 this.unstick();
                 document.documentElement.classList.remove('hstles-redirecting');
+                if (e && e.persisted) {
+                    // ensure full reset from bfcache restore
+                    this._count = 0;
+                    document.documentElement.classList.remove('hstles-loading');
+                }
             });
             // Make common auth/login links trigger sticky loader
             document.addEventListener('click', (e) => {
@@ -424,13 +447,19 @@
         handleAfterRequest(evt) {
             const target = evt.detail?.elt;
             const xhr = evt.detail?.xhr;
-            const hxRedirect = xhr?.getResponseHeader('HX-Redirect') || xhr?.getResponseHeader('Hx-Redirect');
+            const hxRedirect = xhr?.getResponseHeader('HX-Redirect') || xhr?.getResponseHeader('Hx-Redirect') || xhr?.getResponseHeader('HX-Location') || xhr?.getResponseHeader('Hx-Location');
             const status = Number(xhr?.status || 0);
             const isHttpRedirect = status >= 300 && status < 400;
             if (hxRedirect || isHttpRedirect) {
                 document.documentElement.classList.add('hstles-redirecting');
-                this.stick();
+                // Linger so there is no visual gap before navigation
+                this.linger(1500);
                 return;
+            }
+            // If the request navigates to an auth flow URL, linger briefly
+            const respUrl = xhr?.responseURL || '';
+            if (/\/auth\//.test(respUrl)) {
+              this.linger(1200);
             }
             if (target) {
                 utils.removeClass(target, 'htmx-request');

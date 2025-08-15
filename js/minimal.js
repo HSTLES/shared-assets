@@ -3,6 +3,13 @@
  * Lightweight vanilla JavaScript replacement for Keenthemes bundle
  * Dependencies: None (vanilla JS only)
  * Size: <10KB vs 474KB original bundle
+ *
+ * Version: v0.1.2
+ * Build-Date: 2025-08-16
+ * Tag: v0.1.2
+ * Source: https://github.com/HSTLES/shared-assets
+ * CDN-Note: If @latest is stale, purge:
+ *   - https://purge.jsdelivr.net/gh/HSTLES/shared-assets@latest/js/minimal.js
  */
 
 (function() {
@@ -271,11 +278,7 @@
     }
 
     // =============================================================================
-    // 5. LOADER MANAGER (single source of truth: universal + HTMX integration)
-    // =============================================================================
-
-    // =============================================================================
-    // 5b. UNIVERSAL LOADER MANAGER
+    // 5. HTMX LOADING MANAGER
     // =============================================================================
 
     const Loader = {

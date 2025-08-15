@@ -377,6 +377,35 @@
                     this.stick();
                 }
             }, true);
+
+            // Safety timeout so sticky loader can’t hang indefinitely
+            this._safetyTimer && clearTimeout(this._safetyTimer);
+            this._safetyTimer = setTimeout(() => {
+                this._sticky = false;
+                this._navPending = false;
+                this._count = 0;
+                document.documentElement.classList.remove('hstles-loading');
+                document.documentElement.classList.remove('hstles-redirecting');
+            }, 10000);
+
+            // Clear loading classes when page becomes visible again (back/forward cache)
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') {
+                    this._sticky = false;
+                    this._navPending = false;
+                    this._count = 0;
+                    document.documentElement.classList.remove('hstles-loading');
+                    document.documentElement.classList.remove('hstles-redirecting');
+                }
+            });
+            // Also clear on history navigation events
+            window.addEventListener('popstate', () => {
+                this._sticky = false;
+                this._navPending = false;
+                this._count = 0;
+                document.documentElement.classList.remove('hstles-loading');
+                document.documentElement.classList.remove('hstles-redirecting');
+            });
         },
 
         handleBeforeRequest(evt) {

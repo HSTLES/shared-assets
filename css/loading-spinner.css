@@ -130,6 +130,7 @@
 
 /* Larger spinner for overlay */
 .hstles-loader .loading-spinner {
+  display: inline-block;
   width: 28px;
   height: 28px;
   border-width: 3px;

@@ -271,97 +271,138 @@
     }
 
     // =============================================================================
-    // 5. HTMX LOADING MANAGER
+    // 5. LOADER MANAGER (single source of truth: universal + HTMX integration)
     // =============================================================================
-    
-    class HTMXLoadingManager {
-        static init() {
-            // Add loading state management for HTMX requests
-            utils.on(document.body, 'htmx:beforeRequest', this.handleBeforeRequest);
-            utils.on(document.body, 'htmx:afterRequest', this.handleAfterRequest);
-            utils.on(document.body, 'htmx:responseError', this.handleError);
-            utils.on(document.body, 'htmx:timeout', this.handleTimeout);
-        }
 
-        static handleBeforeRequest(evt) {
-            const target = evt.detail.elt;
-            
-            // Add loading class to the element
+    // =============================================================================
+    // 5b. UNIVERSAL LOADER MANAGER
+    // =============================================================================
+
+    const Loader = {
+        _count: 0,
+        _el: null,
+    _initialized: false,
+
+        ensureElement() {
+            if (this._el) return this._el;
+            const el = document.createElement('div');
+            el.className = 'hstles-loader';
+            el.setAttribute('aria-live', 'polite');
+            el.setAttribute('aria-busy', 'true');
+            el.innerHTML = '<span class="loading-spinner" aria-hidden="true"></span><span class="sr-only">Loading…</span>';
+            document.body.appendChild(el);
+            this._el = el;
+            return el;
+        },
+
+        show() {
+            this.ensureElement();
+            this._count = Math.max(1, this._count + 1);
+            document.documentElement.classList.add('hstles-loading');
+        },
+
+        hide() {
+            this._count = Math.max(0, this._count - 1);
+            if (this._count === 0) {
+                document.documentElement.classList.remove('hstles-loading');
+            }
+        },
+
+        // Event helpers (bound-friendly)
+        increment() { Loader.show(); },
+        decrement() { Loader.hide(); },
+
+        // Promise wrapper for arbitrary async work
+        wrapPromise(p) {
+            Loader.show();
+            return Promise.resolve(p).finally(() => Loader.hide());
+        },
+
+        // HTMX integration (optional, auto-wired if htmx is on the page)
+        init() {
+            if (this._initialized) return;
+            this._initialized = true;
+            // If HTMX events are present, wire them
+            if (window.document && 'addEventListener' in document) {
+                utils.on(document.body, 'htmx:beforeRequest', this.handleBeforeRequest.bind(this));
+                utils.on(document.body, 'htmx:afterRequest', this.handleAfterRequest.bind(this));
+                utils.on(document.body, 'htmx:responseError', this.handleError.bind(this));
+                utils.on(document.body, 'htmx:timeout', this.handleTimeout.bind(this));
+                utils.on(document.body, 'htmx:beforeSwap', this.handleBeforeSwap.bind(this));
+                utils.on(window, 'pageshow', this.handlePageShow.bind(this));
+
+                // Drive the single loader off HTMX lifecycle
+                utils.on(document.body, 'htmx:beforeRequest', this.increment);
+                utils.on(document.body, 'htmx:afterRequest', this.decrement);
+                utils.on(document.body, 'htmx:responseError', this.decrement);
+                utils.on(document.body, 'htmx:timeout', this.decrement);
+            }
+        },
+
+        handleBeforeRequest(evt) {
+            const target = evt.detail?.elt;
+            if (!target) return;
             utils.addClass(target, 'htmx-request');
-            
-            // Disable form elements if it's a form
+            // Disable inputs/buttons in scope
             if (target.tagName === 'FORM') {
-                const inputs = target.querySelectorAll('input, button, select, textarea');
-                inputs.forEach(input => {
-                    input.disabled = true;
-                });
+                target.querySelectorAll('input, button, select, textarea').forEach(i => i.disabled = true);
             }
-            
-            // If it's a button, disable it
-            if (target.tagName === 'BUTTON') {
-                target.disabled = true;
-            }
-            
-            // If it's an element with a form parent, disable the parent form
+            if (target.tagName === 'BUTTON') target.disabled = true;
             const parentForm = target.closest('form');
-            if (parentForm) {
-                const inputs = parentForm.querySelectorAll('input, button, select, textarea');
-                inputs.forEach(input => {
-                    input.disabled = true;
-                });
+            if (parentForm) parentForm.querySelectorAll('input, button, select, textarea').forEach(i => i.disabled = true);
+        },
+
+        handleAfterRequest(evt) {
+            const target = evt.detail?.elt;
+            const xhr = evt.detail?.xhr;
+            const hxRedirect = xhr?.getResponseHeader('HX-Redirect') || xhr?.getResponseHeader('Hx-Redirect');
+            const status = Number(xhr?.status || 0);
+            const isHttpRedirect = status >= 300 && status < 400;
+            if (hxRedirect || isHttpRedirect) {
+                document.documentElement.classList.add('hstles-redirecting');
+                return;
             }
-        }
+            if (target) {
+                utils.removeClass(target, 'htmx-request');
+                this.enableElements(target);
+            }
+        },
 
-        static handleAfterRequest(evt) {
-            const target = evt.detail.elt;
-            
-            // Remove loading class
-            utils.removeClass(target, 'htmx-request');
-            
-            // Re-enable form elements
-            HTMXLoadingManager.enableElements(target);
-        }
+        handleError(evt) {
+            const target = evt.detail?.elt;
+            if (target) {
+                utils.removeClass(target, 'htmx-request');
+                this.enableElements(target);
+            }
+        },
 
-        static handleError(evt) {
-            const target = evt.detail.elt;
-            utils.removeClass(target, 'htmx-request');
-            
-            // Re-enable form elements on error
-            HTMXLoadingManager.enableElements(target);
-        }
+        handleTimeout(evt) {
+            const target = evt.detail?.elt;
+            if (target) {
+                utils.removeClass(target, 'htmx-request');
+                this.enableElements(target);
+            }
+        },
 
-        static handleTimeout(evt) {
-            const target = evt.detail.elt;
-            utils.removeClass(target, 'htmx-request');
-            
-            // Re-enable form elements on timeout
-            HTMXLoadingManager.enableElements(target);
-        }
+        handleBeforeSwap(evt) {
+            const xhr = evt.detail?.xhr;
+            const hxRedirect = xhr?.getResponseHeader('HX-Redirect') || xhr?.getResponseHeader('Hx-Redirect');
+            if (hxRedirect) document.documentElement.classList.add('hstles-redirecting');
+        },
 
-        static enableElements(target) {
-            // Re-enable form elements
+        handlePageShow() {
+            document.documentElement.classList.remove('hstles-redirecting');
+        },
+
+        enableElements(target) {
             if (target.tagName === 'FORM') {
-                const inputs = target.querySelectorAll('input, button, select, textarea');
-                inputs.forEach(input => {
-                    input.disabled = false;
-                });
+                target.querySelectorAll('input, button, select, textarea').forEach(i => i.disabled = false);
             }
-            
-            // If it's a button, re-enable it
-            if (target.tagName === 'BUTTON') {
-                target.disabled = false;
-            }
-            
-            // If it's an element with a form parent, re-enable the parent form
+            if (target.tagName === 'BUTTON') target.disabled = false;
             const parentForm = target.closest('form');
-            if (parentForm) {
-                const inputs = parentForm.querySelectorAll('input, button, select, textarea');
-                inputs.forEach(input => {
-                    input.disabled = false;
-                });
-            }
+            if (parentForm) parentForm.querySelectorAll('input, button, select, textarea').forEach(i => i.disabled = false);
         }
-    }
+    };
 
     // =============================================================================
     // 6. FORM HELPERS (for additional HTMX integration)
@@ -439,9 +480,9 @@
         }
 
         static initHTMX() {
-            // Initialize HTMX loading manager
-            HTMXLoadingManager.init();
-            console.log('HTMX loading manager initialized');
+            // Initialize single Loader (includes HTMX wiring)
+            Loader.init();
+            console.log('Loader initialized');
         }
 
         static initForms() {
@@ -493,6 +534,7 @@
     // Expose to global scope for compatibility
     window.HSTLES = HSTLES;
     window.HSTLESUtils = utils;
+    window.Loader = Loader;
 
     // Auto-initialize when DOM is ready
     utils.ready(() => {

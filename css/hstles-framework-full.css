@@ -2502,7 +2502,9 @@ video {
   flex-shrink: 0;
   padding: 0;
   gap: 0;
-  width: 2.5rem;
+  width: 0.5rem;
+  vertical-align: middle;
+  margin-top: -2px;
 }
 
 .btn-icon.btn-xs {

@@ -288,6 +288,7 @@
         _sticky: false,
         _navPending: false,
         _lingerTimer: null,
+        _redirectPending: false,
 
         ensureElement() {
             if (this._el) return this._el;
@@ -308,8 +309,8 @@
         },
 
         hide() {
-            // If sticky (during redirect/navigation), defer hiding until pageshow/unload
-            if (this._sticky || this._navPending) return;
+            // If sticky or navigation/redirect pending, do not hide yet
+            if (this._sticky || this._navPending || this._redirectPending) return;
             this._count = Math.max(0, this._count - 1);
             if (this._count === 0) {
                 document.documentElement.classList.remove('hstles-loading');
@@ -368,14 +369,20 @@
             // Keep loader on during full navigations/redirects
             window.addEventListener('beforeunload', () => {
                 this._navPending = true;
+                this._redirectPending = true;
+                // ensure class is set even if counts were decremented
+                this._count = Math.max(1, this._count);
+                document.documentElement.classList.add('hstles-loading');
                 this.stick();
             });
             window.addEventListener('unload', () => {
                 this._navPending = true;
+                this._redirectPending = true;
                 this.stick();
             });
             window.addEventListener('pagehide', () => {
                 this._navPending = false;
+                this._redirectPending = false;
                 this._sticky = false;
                 this._count = 0;
                 document.documentElement.classList.remove('hstles-loading');
@@ -383,51 +390,34 @@
             });
             window.addEventListener('pageshow', (e) => {
                 this._navPending = false;
+                this._redirectPending = false;
                 this.unstick();
                 document.documentElement.classList.remove('hstles-redirecting');
+                this.resetElements();
                 if (e && e.persisted) {
-                    // ensure full reset from bfcache restore
-                    this._count = 0;
-                    document.documentElement.classList.remove('hstles-loading');
+                    // Force reload when returning from bfcache to fully reset DOM & HTMX state
+                    window.location.reload();
                 }
             });
-            // Make common auth/login links trigger sticky loader
-            document.addEventListener('click', (e) => {
-                const a = e.target.closest('a');
-                if (!a) return;
-                const href = a.getAttribute('href') || '';
-                if (/\/auth\//.test(href) || /login/.test(href) || a.hasAttribute('data-loader-sticky')) {
-                    this.stick();
-                }
-            }, true);
-
-            // Safety timeout so sticky loader can’t hang indefinitely
-            this._safetyTimer && clearTimeout(this._safetyTimer);
-            this._safetyTimer = setTimeout(() => {
-                this._sticky = false;
-                this._navPending = false;
-                this._count = 0;
-                document.documentElement.classList.remove('hstles-loading');
-                document.documentElement.classList.remove('hstles-redirecting');
-            }, 10000);
-
-            // Clear loading classes when page becomes visible again (back/forward cache)
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'visible') {
                     this._sticky = false;
                     this._navPending = false;
+                    this._redirectPending = false;
                     this._count = 0;
                     document.documentElement.classList.remove('hstles-loading');
                     document.documentElement.classList.remove('hstles-redirecting');
+                    this.resetElements();
                 }
             });
-            // Also clear on history navigation events
             window.addEventListener('popstate', () => {
                 this._sticky = false;
                 this._navPending = false;
+                this._redirectPending = false;
                 this._count = 0;
                 document.documentElement.classList.remove('hstles-loading');
                 document.documentElement.classList.remove('hstles-redirecting');
+                this.resetElements();
             });
         },
 
@@ -452,14 +442,20 @@
             const isHttpRedirect = status >= 300 && status < 400;
             if (hxRedirect || isHttpRedirect) {
                 document.documentElement.classList.add('hstles-redirecting');
-                // Linger so there is no visual gap before navigation
-                this.linger(1500);
+                // lock loader on until navigation; avoid flicker by ensuring active state
+                this._redirectPending = true;
+                this._count = Math.max(1, this._count);
+                document.documentElement.classList.add('hstles-loading');
+                this.stick();
                 return;
             }
             // If the request navigates to an auth flow URL, linger briefly
             const respUrl = xhr?.responseURL || '';
             if (/\/auth\//.test(respUrl)) {
-              this.linger(1200);
+              this._redirectPending = true;
+              this._count = Math.max(1, this._count);
+              document.documentElement.classList.add('hstles-loading');
+              this.stick();
             }
             if (target) {
                 utils.removeClass(target, 'htmx-request');
@@ -495,6 +491,19 @@
         handlePageShow() {
             document.documentElement.classList.remove('hstles-redirecting');
         },
+
+        resetElements() {
+            // remove any lingering htmx-request classes and re-enable inputs/buttons
+            document.querySelectorAll('.htmx-request').forEach(el => {
+              el.classList.remove('htmx-request');
+              if (el.tagName === 'FORM') {
+                el.querySelectorAll('input, button, select, textarea').forEach(i => i.disabled = false);
+              }
+              if (el.tagName === 'BUTTON') el.disabled = false;
+              const form = el.closest && el.closest('form');
+              if (form) form.querySelectorAll('input, button, select, textarea').forEach(i => i.disabled = false);
+            });
+          },
 
         enableElements(target) {
             if (target.tagName === 'FORM') {

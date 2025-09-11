@@ -5514,6 +5514,10 @@ label.rating-label {
   max-width: 80%;
 }
 
+.max-w-\[90\%\] {
+  max-width: 90%;
+}
+
 .max-w-full {
   max-width: 100%;
 }

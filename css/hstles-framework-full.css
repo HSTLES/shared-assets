@@ -5510,6 +5510,10 @@ label.rating-label {
   max-width: 600px;
 }
 
+.max-w-\[80\%\] {
+  max-width: 80%;
+}
+
 .max-w-full {
   max-width: 100%;
 }
@@ -7300,6 +7304,10 @@ label.rating-label {
 
 .\[--tw-sidebar-width\:90px\] {
   --tw-sidebar-width: 90px;
+}
+
+.\[--tw-sidebar-width\:80px\] {
+  --tw-sidebar-width: 80px;
 }
 
 .\[background-position\:121\%_41\%\] {
